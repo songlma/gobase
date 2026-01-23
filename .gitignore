@@ -1,0 +1,7 @@
+.idea
+test
+*.sqlite
+*.sqlite3
+*.db
+*.out
+*.html
