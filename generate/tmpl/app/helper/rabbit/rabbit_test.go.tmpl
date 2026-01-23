@@ -1,0 +1,58 @@
+package rabbit
+
+import (
+	"context"
+	"github.com/songlma/gobase/errorz"
+	"github.com/songlma/gobase/rabbitmq"
+	"sync"
+	"{{.projectName}}/app/helper/testz"
+	"testing"
+)
+
+
+func init() {
+	testz.Init()
+}
+
+func GetRabbitExampleConn(ctx context.Context) (*rabbitmq.Conn, errorz.Error) {
+	return getSendConnWithConfig(ctx, "rabbit_example")
+}
+
+func GetRabbitExampleConsumeConn(ctx context.Context) ([]*rabbitmq.Conn, errorz.Error) {
+	return GetConsumeConn(ctx, "rabbit_example")
+}
+
+func TestSend(t *testing.T) {
+	ctx := context.Background()
+	rabbitExampleConn, errz := GetRabbitExampleConn(ctx)
+	if errz != nil {
+		t.Error(errz)
+		return
+	}
+	rabbitExampleConn.Publish(ctx, []byte("测试小时"))
+
+}
+
+func TestGetConsumeConn(t *testing.T) {
+	ctx := context.Background()
+	var wait sync.WaitGroup
+	consumeConn, errz := GetRabbitExampleConsumeConn(ctx)
+	if errz != nil {
+		t.Error(errz)
+		return
+	}
+	for _, conn := range consumeConn {
+		wait.Add(1)
+		go func(conn *rabbitmq.Conn) {
+			defer wait.Done()
+			t.Log("start Consume")
+			err := conn.Consume(ctx, "go_test1", func(ctx context.Context, delivery rabbitmq.Delivery) {
+				t.Log(string(delivery.Body))
+				delivery.Ack(false)
+				conn.Close()
+			})
+			t.Log(err)
+		}(conn)
+		wait.Wait()
+	}
+}

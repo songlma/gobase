@@ -1,0 +1,86 @@
+package redis
+
+import (
+	"{{.projectName}}/app/constant"
+	"context"
+	"fmt"
+	"github.com/songlma/gobase/config"
+	"github.com/songlma/gobase/errorz"
+	"github.com/songlma/gobase/logger"
+	"github.com/songlma/gobase/redisz"
+	"sync"
+)
+
+var cachePool = make(map[string]*pool)
+
+type pool struct {
+	conf      Config
+	redisPoll *redisz.Pool
+}
+
+type Config struct {
+	Addr string `json:"addr"`
+	Auth string `json:"auth"`
+}
+
+var pollLock sync.Mutex
+
+func getPool(ctx context.Context, config Config) (*pool, errorz.Error) {
+	var p *pool
+	var ok bool
+	if p, ok = cachePool[config.Addr]; ok {
+		return p, nil
+	}
+	pollLock.Lock()
+	defer pollLock.Unlock()
+	if p, ok = cachePool[config.Addr]; ok == true {
+		return p, nil
+	}
+	logger.Info(ctx, "redis new poll")
+	redisPool := redisz.NewPool(ctx, config.Addr, config.Auth)
+	cachePool[config.Addr] = &pool{
+		conf:      config,
+		redisPoll: redisPool,
+	}
+	return cachePool[config.Addr], nil
+}
+
+func Close(ctx context.Context) error {
+	logger.Info(ctx, "close cached redis pool")
+	for k, rds := range cachePool {
+		err := rds.redisPoll.Close(ctx)
+		if err != nil {
+			logger.Errorf(ctx, "close %s redis fail:%s", k, err)
+		}
+	}
+	return nil
+}
+
+func getConnWithConfig(ctx context.Context, config Config) (*redisz.Conn, errorz.Error) {
+	if config.Addr == "" {
+		return nil, constant.RedisConfigError.Error("redis addr must not nil")
+	}
+	var p *pool
+	var xbErr errorz.Error
+	p, xbErr = getPool(ctx, config)
+	if xbErr != nil {
+		return nil, xbErr
+	}
+	conn := p.redisPoll.GetConn()
+	err := conn.Ping(ctx)
+	if err != nil {
+		logger.Error(ctx, err, fmt.Sprintf(" getConnWithConfig addr:%s auth:%s", config.Addr, config.Auth))
+		_ = conn.Close(ctx)
+		return nil, constant.RedisPingError.ErrorWrap(fmt.Sprintf("ping addr:%s err", config.Addr), err)
+	}
+	return conn, nil
+}
+
+func GetCommonRedis(ctx context.Context) (*redisz.Conn, errorz.Error) {
+	var conf Config
+	err := config.UnmarshalKey("config.redis.common", &conf)
+	if err != nil {
+		return nil, constant.RedisConfigError.ErrorWrap("redis config err:", err)
+	}
+	return getConnWithConfig(ctx, conf)
+}

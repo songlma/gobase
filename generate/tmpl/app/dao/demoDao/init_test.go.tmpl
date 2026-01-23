@@ -1,0 +1,56 @@
+package demoDao
+
+import (
+	"context"
+	_ "embed"
+	sqlz "github.com/songlma/gobase/sqlz"
+	"github.com/songlma/gobase/ddl2struct"
+	"{{.projectName}}/app/helper/testz"
+	"testing"
+)
+
+var TestContext = context.Background()
+
+func init() {
+	testz.Init(TestContext)
+}
+
+//go:embed ddl.txt
+var ddl string
+
+/*
+ type Demo struct {
+		Id       uint64        `db:"id"`
+		Num      int32         `db:"num"`
+		Name     string        `db:"name"`
+		Birthday time.Time     `db:"birthday"`
+		Stock    sql.NullInt32 `db:"stock"`
+		Status   int8          `db:"status"`
+		Ctime    time.Time     `db:"ctime"`
+		Utime    sql.NullTime  `db:"utime"`
+}
+*/
+
+func TestDDL2Struct(t *testing.T) {
+	re := ddl2struct.Mysql2Struct(ddl)
+	t.Logf("%s", re)
+}
+
+/*
+	生成时间:2021-12-02 15:58:53.817724 +0800 CST m=+0.003626443
+        INSERT:
+        insert into XXXXX
+        ( id, num, name, birthday, stock, status, ctime, utime) values
+        (:id,:num,:name,:birthday,:stock,:status,:ctime,:utime)
+        SELECT *:
+        select id, num, name, birthday, stock, status, ctime, utime
+        from XXXXX
+        where id=0
+        UPDATE ALL:
+        update XXXXX set num=:num, name=:name, birthday=:birthday, stock=:stock, status=:status
+        where id=0
+
+*/
+func TestTemplateSql(t *testing.T) {
+	t.Log(sqlz.TemplateSql(Demo{}))
+}

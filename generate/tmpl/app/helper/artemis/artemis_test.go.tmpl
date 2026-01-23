@@ -1,0 +1,67 @@
+package artemis
+
+import (
+	"context"
+	"github.com/go-stomp/stomp"
+	"github.com/songlma/gobase/artemismq"
+	"github.com/songlma/gobase/config"
+	"github.com/songlma/gobase/errorz"
+	"sync"
+	"{{.projectName}}/app/constant"
+	"{{.projectName}}/app/helper/testz"
+	"testing"
+)
+
+func init() {
+	testz.Init()
+}
+
+func GetArtemisExampleConn(ctx context.Context) (*artemismq.Conn, errorz.Error) {
+	var conf Config
+	err := config.UnmarshalKey("config.artemis_example", &conf)
+	if err != nil {
+		return nil, constant.ArtemisConfigError.ErrorWrap("artemis config err:", err)
+	}
+	return getSendConnWithConfig(ctx, conf)
+}
+
+func GetArtemisExampleSubscribeConn(ctx context.Context) ([]*artemismq.Conn, errorz.Error) {
+	return GetSubscribeConnWithConfig(ctx, "config.artemis_example")
+}
+
+func TestSend(t *testing.T) {
+	ctx := context.Background()
+	conn, errz := GetArtemisExampleConn(ctx)
+	if errz != nil {
+		t.Error(errz)
+		return
+	}
+	defer conn.Close(ctx)
+	err := conn.Send(ctx, artemismq.NewMessage([]byte("12312")))
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestSubscribeConn(t *testing.T) {
+	ctx := context.Background()
+	var wait sync.WaitGroup
+	conns, errz := GetArtemisExampleSubscribeConn(ctx)
+	if errz != nil {
+		t.Error(errz)
+	}
+	for _, conn := range conns {
+		wait.Add(1)
+		go func(conn *artemismq.Conn) {
+			defer wait.Done()
+			err := conn.Subscribe(ctx, func(ctx context.Context, message *stomp.Message) error {
+				t.Log(string(message.Body))
+				conn.Ack(message)
+				conn.Close(ctx)
+				return nil
+			})
+			t.Log(err)
+		}(conn)
+	}
+	wait.Wait()
+}

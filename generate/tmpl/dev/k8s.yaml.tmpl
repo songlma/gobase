@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: default
+  name: {{.projectName}}-{{.serviceType}}-go-conf
+  labels:
+    project: {{.projectName}}-go
+data:
+  config.yaml: |
+    api:
+      web_addr: :8080
+      grpc_port: :8081
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  namespace: default
+  name: {{.projectName}}-{{.serviceType}}-go-secret
+  labels:
+    project: {{.projectName}}-go
+type: Opaque
+stringData:
+  config.yaml: |-
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.projectName}}-{{.serviceType}}-go-service
+  labels:
+    project: {{.projectName}}-go
+spec:
+  type: LoadBalancer
+  ports:
+    - name: 8080-tcp
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app: {{.projectName}}-go
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: default
+  name: {{.projectName}}-{{.serviceType}}-go-sset
+  labels:
+    project: {{.projectName}}-go
+spec:
+  serviceName: {{.projectName}}-go
+  replicas: 2
+  selector:
+    matchLabels:
+      app: {{.projectName}}-go
+  template:
+    metadata:
+      labels:
+        app: {{.projectName}}-go
+    spec:
+      shareProcessNamespace: true
+      containers:
+        - name: {{.projectName}}-{{.serviceType}}-go-server
+          image:
+          ports:
+            - name: web
+              containerPort: 8080
+          livenessProbe:
+            httpGet: #非web服务使用readiness代替
+              path:
+              port: 8080
+            #            tcpSocket: #web服务使用tcp监听端口探活
+            #              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: secret
+              mountPath: /webroot/secret/
+              readOnly: true
+            - name: config
+              mountPath: /webroot/config/
+              readOnly: true
+      volumes:
+        - name: secret
+          secret:
+            secretName: {{.projectName}}-{{.serviceType}}-go-secret
+        - name: config
+          configMap:
+            name: {{.projectName}}-{{.serviceType}}-go-conf

@@ -1,0 +1,121 @@
+package rabbit
+
+import (
+	"context"
+	"fmt"
+	"github.com/songlma/gobase/config"
+	"github.com/songlma/gobase/errorz"
+	"github.com/songlma/gobase/logger"
+	"github.com/songlma/gobase/rabbitmq"
+	"math/rand"
+	"{{.projectName}}/app/constant"
+)
+
+var cachePool = make(map[string]*pool)
+
+type pool struct {
+	Url      string
+	Exchange string
+	rabbitmq *rabbitmq.Pool
+}
+
+var cacheConfig = make(map[string]*Config)
+
+type Config struct {
+	Url         []string
+	Exchange    string
+	QueuePrefix string
+	Queue       string
+}
+
+func getConfig(queue string) (*Config, errorz.Error) {
+	if rabbitConfig, ok := cacheConfig[queue]; ok {
+		return rabbitConfig, nil
+	}
+	var rabbitConfig Config
+	if err := config.UnmarshalKey(fmt.Sprintf("config.%s", queue), &rabbitConfig); err != nil {
+		return nil, constant.RabbitConfigNotFoundError.ErrorWrap(fmt.Sprintf("%s config not found", queue), err)
+	}
+	cacheConfig[queue] = &rabbitConfig
+	return &rabbitConfig, nil
+}
+
+func newPool(ctx context.Context, url, exchange string) (*pool, errorz.Error) {
+
+	pollTag := fmt.Sprintf("%s_%s", url, exchange)
+
+	if p, ok := cachePool[pollTag]; ok == true {
+		return p, nil
+	}
+
+	p := rabbitmq.NewPool(ctx, rabbitmq.Config{
+		Addr:     url,
+		Exchange: exchange,
+	})
+
+	cachePool[pollTag] = &pool{
+		Url:      url,
+		Exchange: exchange,
+		rabbitmq: p,
+	}
+
+	return cachePool[pollTag], nil
+}
+
+func Close(ctx context.Context) error {
+	for _, p := range cachePool {
+		err := p.rabbitmq.Close(ctx)
+		if err != nil {
+			logger.Error(ctx, err)
+		}
+	}
+	return nil
+}
+
+func getSendConnWithConfig(ctx context.Context, queue string) (*rabbitmq.Conn, errorz.Error) {
+	rabbitConfig, err := getConfig(queue)
+	if rabbitConfig == nil || rabbitConfig.Queue == "" || len(rabbitConfig.Url) == 0 {
+		return nil, constant.RabbitConfigNotFoundError.Error(fmt.Sprintf("rabbit config err %+v", rabbitConfig))
+	}
+	logger.Info(ctx, fmt.Sprintf("%+v", rabbitConfig))
+	if err != nil {
+		return nil, err
+	}
+	n := rand.Intn(len(rabbitConfig.Url))
+	url := rabbitConfig.Url[n]
+	p, err := newPool(ctx, url, rabbitConfig.Exchange)
+	if err != nil {
+		return nil, errorz.GoErr(err)
+	}
+	queue = rabbitConfig.QueuePrefix + rabbitConfig.Queue
+	conn, goErr := p.rabbitmq.NewConn(ctx, queue)
+	if goErr != nil {
+		return nil, constant.RabbitConnError.ErrorWrap(fmt.Sprint("conn to rabbit $s", url), err)
+	}
+	return conn, nil
+}
+
+func GetConsumeConn(ctx context.Context, queue string) ([]*rabbitmq.Conn, errorz.Error) {
+	rabbitConfig, xbErr := getConfig(queue)
+	if rabbitConfig == nil || rabbitConfig.Queue == "" || len(rabbitConfig.Url) == 0 {
+		return nil, constant.RabbitConfigNotFoundError.Error(fmt.Sprintf("rabbit config err %+v", rabbitConfig))
+	}
+	if xbErr != nil {
+		return nil, xbErr
+	}
+	var conns []*rabbitmq.Conn
+	for _, url := range rabbitConfig.Url {
+		P, err := newPool(ctx, url, rabbitConfig.Exchange)
+		if err != nil {
+			return nil, errorz.GoErr(err)
+		}
+		queue = rabbitConfig.QueuePrefix + rabbitConfig.Queue
+		logger.Info(ctx, fmt.Sprintf("Conn-queue:%s", queue))
+		conn, goErr := P.rabbitmq.NewConn(ctx, queue)
+		if goErr != nil {
+			return nil, constant.RabbitConnError.ErrorWrap(fmt.Sprintf("conn to rabbit %s", url), err)
+		}
+		conns = append(conns, conn)
+	}
+	return conns, nil
+}

@@ -1,0 +1,141 @@
+package web
+
+import (
+	"context"
+	"fmt"
+	"github.com/gin-gonic/gin"
+	"github.com/opentracing/opentracing-go"
+	"github.com/songlma/gobase/app"
+	"github.com/songlma/gobase/errorz"
+	"github.com/songlma/gobase/httpz"
+	"github.com/songlma/gobase/logger"
+	"google.golang.org/grpc"
+	"{{.projectName}}/app/api/web/api"
+	"{{.projectName}}/app/api/web/callback"
+	"{{.projectName}}/app/api/web/inner"
+	"{{.projectName}}/app/api/web/openapi"
+	"net/http"
+	"sync"
+	"time"
+)
+
+type App struct {
+	conf       AppConfig
+	server     *http.Server
+	gRpcServer *grpc.Server
+	wg         *sync.WaitGroup
+}
+
+type AppConfig struct {
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
+	Addr         string
+}
+
+func NewApp(ctx context.Context, conf AppConfig) *App {
+	return &App{
+		conf: conf,
+		wg:   new(sync.WaitGroup),
+	}
+}
+
+func NewAppConfig(addr string) AppConfig {
+	conf := AppConfig{
+		Addr:         addr,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 20 * time.Second,
+		IdleTimeout:  5 * time.Second,
+	}
+	return conf
+}
+
+func (app *App) Start(ctx context.Context) errorz.Error {
+	app.wg.Add(1)
+	//go startRpc(ctx, app)
+	go StartHttp(ctx, app)
+
+	return nil
+}
+
+func (app *App) Stop(ctx context.Context) errorz.Error {
+
+	err := app.server.Shutdown(ctx)
+	if err != nil {
+		logger.Error(ctx, fmt.Sprintf("ShutdownErr:%v", err))
+	}
+
+	if app.gRpcServer != nil {
+		app.gRpcServer.GracefulStop()
+	} else {
+		logger.Warn(ctx, "app.gRpcServer")
+	}
+	app.wg.Wait()
+	return nil
+}
+
+func (app *App) Name() string {
+	return "http server@" + app.conf.Addr
+}
+
+func (app *App) Once(ctx context.Context, params string) errorz.Error {
+	panic("not support once")
+}
+
+func (app *App) Ready(ctx context.Context) bool {
+	return true
+}
+//
+//func startRpc(ctx context.Context, app *App) {
+//	defer app.wg.Done()
+//	grpcAddr := config.GetString("config.api.grpc_port")
+//	logger.Infof(ctx, "grpc start %s", grpcAddr)
+//	lis, err := net.Listen("tcp", grpcAddr)
+//	if err != nil {
+//		logger.Errorf(ctx, "failed to listen: %v", err)
+//		return
+//	}
+//	var gRpcServer = grpc.NewServer(
+//		rpcz.WithUnaryServerChain(
+//			otgrpc.OpenTracingServerInterceptor(opentracing.GlobalTracer()),
+//			rpcz.PanicUnaryServerInterceptor(),
+//		),
+//		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: 5 * time.Minute}),
+//	)
+//	model.RegisterMeshsrvbInnerServer(gRpcServer, &inner.MeshsrvbInnerServer{})
+//	model.RegisterMeshsrvbApiServer(gRpcServer, &api.MeshsrvbApiServer{})
+//	app.gRpcServer = gRpcServer
+//	if err = gRpcServer.Serve(lis); err != nil {
+//		logger.Error(ctx, "gRpcServerErr:", err)
+//		return
+//	}
+//}
+
+func StartHttp(ctx context.Context, webApp *App) {
+	defer webApp.wg.Done()
+	ginEngine := httpz.DefaultGin(httpz.DefaultConfig())
+	apiGroup := ginEngine.Group("api/")
+	api.AppRoute(apiGroup)
+	openApiGroup := ginEngine.Group("open_api/")
+	openapi.AppRoute(openApiGroup)
+	callBackGroup := ginEngine.Group("call_back/")
+	callback.AppRoute(callBackGroup)
+	innerOpenTracingGinHandlerFunc := httpz.OpenTracingGinHandlerFunc(opentracing.GlobalTracer(), httpz.MWSpanFinishObserver(httpz.InnerRequestSpanFinishObserver()))
+	innerGroup := ginEngine.Group("inner/", innerOpenTracingGinHandlerFunc, httpz.InterRequestLogGinHandlerFunc(), httpz.InterSignGinHandlerFunc())
+	inner.AppRoute(innerGroup)
+	webApp.server = &http.Server{
+		ReadTimeout:  webApp.conf.ReadTimeout,
+		WriteTimeout: webApp.conf.WriteTimeout,
+		IdleTimeout:  webApp.conf.IdleTimeout,
+		Handler:      ginEngine,
+		Addr:         webApp.conf.Addr,
+	}
+	ginEngine.GET("/inner/metrics", gin.WrapH(app.GetPromHttpHandler()))
+	ginEngine.GET("/inner/k8s_readiness", gin.WrapH(app.GetReadinessHandler(webApp.Ready)))
+	logger.Info(ctx, fmt.Sprintf("start web app at %s", webApp.server.Addr))
+	//http服务启动
+	err := webApp.server.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		logger.Error(ctx, fmt.Sprintf("StartWebApp %s ListenAndServe err %+v", webApp.conf.Addr, err))
+	}
+}

@@ -1,0 +1,11 @@
+package demoDao
+
+import "testing"
+
+func TestQueryByName(t *testing.T) {
+	r1, errz := QueryByName(TestContext, "ww9acd2bd5e99c7cdb")
+	if errz != nil {
+		t.Error(errz)
+	}
+	t.Logf("%v", r1)
+}

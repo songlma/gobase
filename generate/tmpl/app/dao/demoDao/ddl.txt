@@ -1,0 +1,11 @@
+CREATE TABLE `demo` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `num` int NOT NULL,
+  `name` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+  `birthday` date NOT NULL,
+  `stock` int DEFAULT NULL,
+  `status` tinyint NOT NULL DEFAULT '0',
+  `ctime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `utime` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

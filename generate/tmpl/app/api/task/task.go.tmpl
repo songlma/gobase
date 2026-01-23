@@ -1,0 +1,55 @@
+package task
+
+import (
+	"context"
+	"fmt"
+	"github.com/songlma/gobase/errorz"
+	"github.com/songlma/gobase/logger"
+	"log"
+	"time"
+)
+
+var allTasks = map[string]func(ctx context.Context){
+	"test_task": func(ctx context.Context) {
+		time.Sleep(time.Second)
+	},
+}
+
+type App struct {
+}
+
+func NewApp(ctx context.Context) *App {
+	return &App{}
+}
+
+func (app *App) Start(ctx context.Context) errorz.Error {
+	panic("no support Start")
+	return nil
+}
+
+func (app *App) Stop(ctx context.Context) errorz.Error {
+	panic("stop support Start")
+	return nil
+}
+
+func (app *App) Name() string {
+	return "{{.projectName}}Task"
+}
+
+func (app *App) Once(ctx context.Context, taskName string) errorz.Error {
+	startTime := time.Now()
+	ctx = trace.ContextWithTrace(ctx, fmt.Sprintf("%s_%s_%s", app.Name(), taskName, time.Now().Format("20060102_150405")))
+	logger.Info(ctx, fmt.Sprintf("task %s start", taskName))
+	if f, ok := allTasks[taskName]; ok {
+		f(ctx)
+	} else {
+		logger.Error(ctx, fmt.Sprintf("task %s not found", taskName))
+		log.Println(fmt.Sprintf("task %s not found", taskName))
+	}
+	logger.Info(ctx, fmt.Sprintf("task %s stop used %d ms", taskName, time.Now().Sub(startTime).Milliseconds()))
+	return nil
+}
+
+func (app *App) Ready(ctx context.Context) bool {
+	return true
+}

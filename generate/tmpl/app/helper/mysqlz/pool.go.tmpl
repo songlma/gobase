@@ -1,0 +1,90 @@
+package mysqlz
+
+import (
+	"context"
+	_ "github.com/go-sql-driver/mysql"
+	sqlz "github.com/songlma/gobase/sqlz"
+	"github.com/songlma/gobase/config"
+	"github.com/songlma/gobase/errorz"
+	"sync"
+)
+
+var cachePool = make(map[string]*sqlz.DB)
+
+type Config struct {
+	Dsn   string `json:"dsn"`
+	Debug bool   `json:"debug"`
+}
+
+var lock sync.RWMutex
+var debug bool
+
+func getPool(ctx context.Context, conf Config) (*sqlz.DB, errorz.Error) {
+	if p, ok := cachePool[conf.Dsn]; ok == true {
+		return p, nil
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	if p, ok := cachePool[conf.Dsn]; ok == true {
+		return p, nil
+	}
+	db, err := sqlz.Open(ctx, "mysql", conf.Dsn)
+	if err != nil {
+		return nil, errorz.GoErr(err)
+	}
+	cachePool[conf.Dsn] = db
+	return cachePool[conf.Dsn], nil
+}
+
+func getConnWithConfig(ctx context.Context, conf Config) (conn *sqlz.Conn, errz errorz.Error) {
+	p, errz := getPool(ctx, conf)
+	if errz != nil {
+		return
+	}
+	conn, err := p.Conn(ctx)
+	if err != nil {
+		return nil, errorz.GoErr(err)
+	}
+	return
+}
+
+func GetReadConn(ctx context.Context) (*sqlz.Conn, errorz.Error) {
+	var conf Config
+	err := config.UnmarshalKey("config.mysql.read", &conf)
+	if err != nil {
+		return nil, errorz.GoErr(err)
+	}
+	return getConnWithConfig(ctx, conf)
+}
+
+func GetReadSlaveConn(ctx context.Context) (*sqlz.Conn, errorz.Error) {
+	var conf Config
+	err := config.UnmarshalKey("config.mysql.read_slave", &conf)
+	if err != nil {
+		return nil, errorz.GoErr(err)
+	}
+	return getConnWithConfig(ctx, conf)
+}
+
+func GetWriteConn(ctx context.Context) (*sqlz.Conn, errorz.Error) {
+	var conf Config
+	err := config.UnmarshalKey("config.mysql.write", &conf)
+	if err != nil {
+		return nil, errorz.GoErr(err)
+	}
+	return getConnWithConfig(ctx, conf)
+}
+
+func Close(ctx context.Context) error {
+	for _, p := range cachePool {
+		p.Close()
+	}
+	return nil
+}
+
+func StartDebug(ctx context.Context) {
+	debug = true
+}
+func StopDebug() {
+	debug = false
+}

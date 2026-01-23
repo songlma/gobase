@@ -1,0 +1,37 @@
+config:
+  api:
+    web_addr: :8080
+    grpc_port: :8081
+  mysql: #数据库配置
+    write:
+      dsn:
+      debug: false
+    read:
+      dsn:
+      debug: false
+    read_slave:
+      dsn:
+      debug: false
+  redis: #redis配置
+    common:
+      addr: localhost:6379
+      auth:
+    promotion_activity:
+      addr: localhost:6379
+      auth:
+  rabbit_example: #队列名称
+    url:
+      - XXXXX
+    queue: XXXX
+    queueprefix:
+  artemis_example: #artemis配置
+    url:
+      - 127.0.0.1:61616
+    user: api_api
+    pwd: api_api
+    addresses: xxxx
+    queues: #该队列如果仅发送无需配置
+      - xxxxx
+    queueprefix:
+  grpc_app_url:
+    xxxx: 127.0.0.1:8081 #调用服务名称 对应地址

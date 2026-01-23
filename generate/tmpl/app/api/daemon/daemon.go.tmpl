@@ -1,0 +1,112 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/go-stomp/stomp"
+	"github.com/songlma/gobase/artemismq"
+	"github.com/songlma/gobase/errorz"
+	"github.com/songlma/gobase/logger"
+	"github.com/songlma/gobase/rabbitmq"
+	"{{.projectName}}/app/helper/artemis"
+	"{{.projectName}}/app/helper/rabbit"
+	"sync"
+)
+
+type ArtemisConsumeFunc func(ctx context.Context, conn *artemismq.Conn, message *stomp.Message) error
+
+type RabbitConsumeFunc func(ctx context.Context, delivery rabbitmq.Delivery)
+
+type App struct {
+	name         string
+	artemisConns []*artemismq.Conn
+	rabbitConns  []*rabbitmq.Conn
+	wg           sync.WaitGroup
+	connIsClose  bool
+}
+
+func NewApp(appName string) *App {
+	return &App{
+		name: appName,
+	}
+}
+
+func (app *App) Name() string {
+	return app.name
+}
+
+func (app *App) Once(ctx context.Context, params string) errorz.Error {
+	logger.Info(ctx, fmt.Sprintf("%s Once params:%s", app.name, params))
+	return nil
+}
+
+func (app *App) Start(ctx context.Context) errorz.Error {
+	logger.Info(ctx, fmt.Sprintf("%s Start", app.name))
+	//todo use app.startRabbitConsume or app.startArtemisConsume set task
+	return nil
+}
+
+func (app *App) startRabbitConsume(ctx context.Context, configKey, consumer string, consumeFunc RabbitConsumeFunc) {
+	conns, xbErr := rabbit.GetConsumeConn(ctx, configKey)
+	if xbErr != nil {
+		logger.Error(ctx, xbErr)
+		return
+	}
+	for _, conn := range conns {
+		app.wg.Add(1)
+		app.rabbitConns = append(app.rabbitConns, conn)
+		go func(conn *rabbitmq.Conn) {
+			defer app.wg.Done()
+			if err := conn.Consume(ctx, consumer, func(ctx context.Context, delivery rabbitmq.Delivery) {
+				logger.Info(ctx, fmt.Sprintf("RabbitConsumeMsg:%s", string(delivery.Body)))
+				consumeFunc(ctx, delivery)
+			}); err != nil {
+				if errors.Is(err, rabbitmq.ConnClosedErr) || errors.Is(err, rabbitmq.PoolClosedErr) {
+					logger.Error(ctx, fmt.Sprintf("%s RabbitConsumeErr:", app.name), err)
+					app.connIsClose = true
+				}
+				logger.Error(ctx, err)
+				return
+			}
+		}(conn)
+	}
+}
+
+func (app *App) startArtemisConsume(ctx context.Context, configKey string, consumeFunc ArtemisConsumeFunc) {
+	conns, errz := artemis.GetSubscribeConnWithConfig(ctx, configKey)
+	if errz != nil {
+		logger.Error(ctx, errz)
+	}
+	for _, conn := range conns {
+		app.artemisConns = append(app.artemisConns, conn)
+		app.wg.Add(1)
+		go func(conn *artemismq.Conn) {
+			defer app.wg.Done()
+			if err := conn.Subscribe(ctx, func(ctx context.Context, message *stomp.Message) error {
+				logger.Info(ctx, fmt.Sprintf("ArtemisConsumeMsg:%s", string(message.Body)))
+				return consumeFunc(ctx, conn, message)
+			}); err != nil {
+				logger.Error(ctx, fmt.Sprintf("%s RArtemisConsumeErr:", app.name), err)
+				app.connIsClose = true
+				return
+			}
+		}(conn)
+	}
+}
+func (app *App) Stop(ctx context.Context) errorz.Error {
+	logger.Info(ctx, fmt.Sprintf("%s Stop", app.name))
+	for _, conn := range app.rabbitConns {
+		conn.Close()
+	}
+	for _, conn := range app.artemisConns {
+		conn.Close(ctx)
+	}
+	rabbit.Close(ctx)
+	app.wg.Wait()
+	return nil
+}
+
+func (app *App) Ready(ctx context.Context) bool {
+	return !app.connIsClose
+}

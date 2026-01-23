@@ -1,0 +1,40 @@
+package demoDao
+
+import (
+	"context"
+	"database/sql"
+	"github.com/songlma/gobase/sqlz"
+	"github.com/songlma/gobase/errorz"
+	mysqlz "{{.projectName}}/app/helper/mysqlz"
+	"time"
+)
+
+const TableName = "demo"
+
+//copy from init_test.TestDDL2Struct
+type Demo struct {
+	Id       uint64        `db:"id"`
+	Num      int32         `db:"num"`
+	Name     string        `db:"name"`
+	Birthday time.Time     `db:"birthday"`
+	Stock    sql.NullInt32 `db:"stock"`
+	Status   int8          `db:"status"`
+	Ctime    time.Time     `db:"ctime"`
+	Utime    sql.NullTime  `db:"utime"`
+}
+
+func QueryByName(ctx context.Context, name string) (result Demo, errz errorz.Error) {
+	conn, errz := mysqlz.GetWriteConn(ctx)
+	if errz != nil {
+		return result, errz
+	}
+	err := conn.QueryOne(&result,
+		sqlz.Strings( //copy from init_test.TestTemplateSql
+			"select id, num, name, birthday, stock, status, ctime, utime",
+			"from demo",
+			"where name=?"), name)
+	if err != nil {
+		return result, errorz.GoErr(err)
+	}
+	return result, nil
+}

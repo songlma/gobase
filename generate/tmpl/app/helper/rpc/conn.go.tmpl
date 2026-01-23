@@ -1,0 +1,53 @@
+package rpc
+
+import (
+	"context"
+	"github.com/opentracing/opentracing-go"
+	"github.com/songlma/gobase/errorz"
+	"github.com/songlma/gobase/rpcz"
+	"google.golang.org/grpc"
+	"math/rand"
+	"sync"
+)
+
+var cacheConn = make(map[string][]*grpc.ClientConn)
+
+var lock sync.RWMutex
+
+func GetConn(ctx context.Context, target string) (*grpc.ClientConn, errorz.Error) {
+	poll, errz := GetConnPoll(ctx, target)
+	if errz != nil {
+		return nil, errz
+	}
+	index := rand.Intn(len(poll))
+	return poll[index], nil
+}
+
+func GetConnPoll(ctx context.Context, target string) ([]*grpc.ClientConn, errorz.Error) {
+	if p, ok := cacheConn[target]; ok == true {
+		return p, nil
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	if p, ok := cacheConn[target]; ok == true {
+		return p, nil
+	}
+	var grpcPoll []*grpc.ClientConn
+	for i := 0; i < 1; i++ {
+		conn, err := grpc.DialContext(ctx, target,
+			grpc.WithInsecure(),
+			rpcz.WithUnaryClientInterceptor(
+				rpcz.OpenTracingUnaryClientInterceptor(opentracing.GlobalTracer()),
+				rpcz.SignUnaryClientInterceptor(rpcz.SignOpt.ServiceName("poster")),
+				rpcz.LogUnaryClientInterceptor(),
+				rpcz.PanicUnaryClientInterceptor(),
+			),
+		)
+		if err != nil {
+			return nil, errorz.GoErr(err)
+		}
+		grpcPoll = append(grpcPoll, conn)
+	}
+	cacheConn[target] = grpcPoll
+	return cacheConn[target], nil
+}

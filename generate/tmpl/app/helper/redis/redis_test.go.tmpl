@@ -1,0 +1,31 @@
+package redis
+
+import (
+	"context"
+	"{{.projectName}}/app/constant/rediskey"
+	"{{.projectName}}/app/helper/testz"
+	"testing"
+)
+
+
+func init() {
+	testz.Init()
+}
+
+
+func TestGetCommonRedis(t *testing.T) {
+	ctx := context.Background()
+	redisConn, errz := GetCommonRedis(ctx)
+	if errz != nil {
+		return
+	}
+	defer redisConn.Close(ctx)
+	_, err := redisConn.Set(ctx, rediskey.TestRedisKey, "123")
+	if err != nil {
+		t.Error(err)
+	}
+	_, err = redisConn.Expire(ctx, rediskey.TestRedisKey, 30)
+	if err != nil {
+		t.Error(err)
+	}
+}

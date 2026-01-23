@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: test
+  name: {{.project}}-conf
+data:
+  config.yaml: |
+    config:
+      env: test
+      api:
+        web_addr: :8080
+        grpc_port: :8081
+      zip_kin:
+        host_port: 9411
+        url: http://zipkin.istio-system:9411/api/v2/spans

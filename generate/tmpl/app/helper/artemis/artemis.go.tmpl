@@ -1,0 +1,128 @@
+package artemis
+
+import (
+	"{{.projectName}}/app/constant"
+	"context"
+	"fmt"
+	"github.com/songlma/gobase/artemismq"
+	"github.com/songlma/gobase/config"
+	"github.com/songlma/gobase/errorz"
+	"github.com/songlma/gobase/logger"
+	"math/rand"
+	"sync"
+)
+
+var cachePool = make(map[string]*pool)
+
+type pool struct {
+	pollKey     string
+	artemisPoll *artemismq.Pool
+}
+
+type Config struct {
+	Url         []string
+	User        string
+	Pwd         string
+	Addresses   string
+	Queues      []string
+	QueuePrefix string
+}
+
+var pollLock sync.Mutex
+
+func getPool(ctx context.Context, url, user, pwd string) (*pool, errorz.Error) {
+	pollKey := fmt.Sprintf("%s_%s_%s", url, user, pwd)
+	var p *pool
+	var ok bool
+	if p, ok = cachePool[pollKey]; ok {
+		return p, nil
+	}
+	pollLock.Lock()
+	defer pollLock.Unlock()
+	if p, ok = cachePool[url]; ok == true {
+		return p, nil
+	}
+	logger.Info(ctx, "artemis new poll")
+	artemisPoll, err := artemismq.NewPool(ctx, artemismq.Config{
+		Url:  url,
+		User: user,
+		Pwd:  pwd,
+	})
+	if err != nil {
+		return nil, errorz.GoErr(err)
+	}
+	cachePool[pollKey] = &pool{
+		pollKey:     pollKey,
+		artemisPoll: artemisPoll,
+	}
+	return cachePool[pollKey], nil
+}
+
+func Close(ctx context.Context) error {
+	logger.Info(ctx, "close cached artemis pool")
+	for k, rds := range cachePool {
+		err := rds.artemisPoll.Close(ctx)
+		if err != nil {
+			logger.Errorf(ctx, "close %s artemis fail:%s", k, err)
+		}
+	}
+	return nil
+}
+
+func getSendConnWithConfig(ctx context.Context, config Config) (*artemismq.Conn, errorz.Error) {
+	if len(config.Url) == 0 {
+		return nil, constant.ArtemisConfigError.Error("artemis url must not nil")
+	}
+	if len(config.Addresses) == 0 {
+		return nil, constant.ArtemisConfigError.Error("artemis addresses must not nil")
+	}
+	var p *pool
+	var xbErr errorz.Error
+	n := rand.Intn(len(config.Url))
+	url := config.Url[n]
+	p, xbErr = getPool(ctx, url, config.User, config.Pwd)
+	if xbErr != nil {
+		return nil, xbErr
+	}
+	conn, err := p.artemisPoll.NewConn(ctx, config.Addresses)
+	if err != nil {
+		return nil, errorz.GoErr(err)
+	}
+	return conn, nil
+}
+
+func GetSubscribeConnWithConfig(ctx context.Context, configKey string) ([]*artemismq.Conn, errorz.Error) {
+	var con Config
+	err := config.UnmarshalKey(configKey, &con)
+	if err != nil {
+		return nil, constant.ArtemisConfigError.ErrorWrap("artemis con err:", err)
+	}
+	if len(con.Url) == 0 {
+		return nil, constant.ArtemisConfigError.Error("artemis url must not nil")
+	}
+	if len(con.Addresses) == 0 {
+		return nil, constant.ArtemisConfigError.Error("artemis addresses must not nil")
+	}
+	if len(con.Queues) == 0 {
+		return nil, constant.ArtemisConfigError.Error("artemis queues must not nil")
+	}
+	var conns []*artemismq.Conn
+	for _, url := range con.Url {
+		for _, queue := range con.Queues {
+			p, errz := getPool(ctx, url, con.User, con.Pwd)
+			if errz != nil {
+				logger.Error(ctx, fmt.Sprintf("artemis get pool %s %s %s", url, con.Url, con.Pwd), errz)
+				continue
+			}
+			address := fmt.Sprintf("%s%s::%s%s", con.Addresses, con.QueuePrefix, queue, con.QueuePrefix)
+			conn, err := p.artemisPoll.NewConn(ctx, address)
+			if err != nil {
+				logger.Error(ctx, fmt.Sprintf("artemis new conn %s %s %s", con.Addresses, con.QueuePrefix, queue), err)
+				continue
+			}
+			logger.Info(ctx, fmt.Sprintf("artemisNewConnSucceed Addresses:%s; %s QueuePrefix:%s;", con.Addresses, con.QueuePrefix, queue), err)
+			conns = append(conns, conn)
+		}
+	}
+	return conns, nil
+}

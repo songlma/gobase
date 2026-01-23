@@ -1,0 +1,18 @@
+package testz
+
+import (
+	"context"
+	"github.com/spf13/viper"
+	"github.com/songlma/gobase/logger"
+	"github.com/songlma/gobase/trace"
+	"log"
+	myConfig "{{.projectName}}/config"
+)
+
+func Init(ctx context.Context) {
+	viper.SetConfigType("yaml")
+	viper.MergeConfig(myConfig.ConfigReader())
+	viper.MergeConfig(myConfig.SecretReader())
+	logger.InitLog(ctx, "{{.projectName}}_test", trace.TraceIDFromContext, logger.Opt.Level(logger.LevelDebug), logger.Opt.Fmt(logger.FMT_TEXT))
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+}

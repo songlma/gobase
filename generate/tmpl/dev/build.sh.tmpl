@@ -1,0 +1,38 @@
+#!/bin/bash
+TagVersion=$1
+DockerHubUrl=$2
+if [ ! -n "$TagVersion" ]; then
+  echo $0 v0.0.1
+  exit 1
+fi
+
+if [ ! -n "$DockerHubUrl" ]; then
+  DockerHubUrl=""
+fi
+
+ImageUrl="${DockerHubUrl}:${TagVersion}"
+
+PWD=`pwd`
+
+rm -f go-{{.projectName}}-{{.serviceType}}
+buildInfo="-X 'main.GitCommitId=' -X 'main.GitBranch=' -X 'main.BuildTime=`date +%Y%m%d%H%M%S`' -X 'main.GoVersion=$(go version)'"
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags netgo -a -v --ldflags "${buildInfo}" -o go-{{.projectName}}-web main.go
+
+dockerCmd=`command -v docker`
+if [ ! -n "$dockerCmd" ];then
+  podman rmi ${ImageUrl}
+  podman build -t ${ImageUrl} .
+  if [ "$push" = "1" ]; then
+    echo "push hub"
+    podman push ${ImageUrl}
+  fi
+else
+  docker rmi ${ImageUrl}
+  docker build -t ${ImageUrl} .
+  if [ "$push" = "1" ]; then
+    echo "push hub"
+    docker push ${ImageUrl}
+  fi
+fi
+
+rm -f go-{{.projectName}}-{{.serviceType}}

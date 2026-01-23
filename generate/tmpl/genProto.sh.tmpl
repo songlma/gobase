@@ -1,0 +1,2 @@
+#!/bin/bash
+protoc -I=./app/model/protobuf/ -I=./app/model/protobuf/ --go_out=plugins=grpc:./app/model/ ./app/model/protobuf/*.proto

@@ -1,0 +1,155 @@
+package main
+
+import (
+	"{{.projectName}}/app/api/{{.serviceType}}"
+	"context"
+	"flag"
+	"fmt"
+	"github.com/sirupsen/logrus"
+	"github.com/songlma/gobase/app"
+	"github.com/songlma/gobase/config"
+	"github.com/songlma/gobase/logger"
+	"github.com/songlma/gobase/trace"
+	"io"
+	"log"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+)
+
+var (
+	GitBranch   string
+	GitCommitId string
+	BuildTime   string
+	GoVersion   string
+)
+
+var versionFmt = `
+git_branch: %s
+git_commit: %s
+build_time: %s
+go_version: %s
+`
+
+func version() string {
+	return fmt.Sprintf(versionFmt, GitBranch, GitCommitId, BuildTime, GoVersion)
+}
+
+var pprofApp app.App
+var defaultApp app.App
+
+func main() {
+	args := os.Args
+	if len(args) == 2 && (args[1] == "--version" || args[1] == "-v") {
+		fmt.Println(version())
+		return
+	}
+
+	configPath := flag.String("config", "../config/", "config path (example:../config/)")
+	taskName := flag.String("task", "", "run once task, example:-task=print_hello")
+	flag.Parse()
+	ctx := context.Background()
+	serviceName := "{{.projectName}}-{{.serviceType}}-go"
+	//根据config path配置文件
+	absPath, err := filepath.Abs(*configPath)
+	if err != nil {
+		log.Fatalf("Main fail: %s", err.Error())
+	}
+	config.Init(ctx, []string{
+		filepath.Join(absPath, "/config/config.yaml"),
+		filepath.Join(absPath, "/secret/config.yaml"),
+	}, false)
+	//初始化日志
+	logger.InitLog(ctx, serviceName, trace.TraceIDFromContext)
+
+		//初始化trace追踪
+	var (
+		closer   io.Closer
+		zipErr   error
+		hostPort = config.GetString("config.zip_kin.host_port")
+		zipUrl   = config.GetString("config.zip_kin.url")
+	)
+	if hostPort != "" && zipUrl != "" {
+		logger.Infof(ctx, "InitZipkin Url:%s HostPort:%s", zipUrl, hostPort)
+		closer, err = trace.InitZipkin(trace.ZipkinConfig{
+			Service:  serviceName,
+			Url:      zipUrl,
+			HostPort: hostPort,
+		})
+		if err != nil {
+			logger.Error(ctx, "InitZipkinErr:", err)
+		}
+		defer func() {
+			if closer != nil {
+				zipErr = closer.Close()
+			}
+			if zipErr != nil {
+				logger.Error(ctx, "zipErr:", zipErr)
+			}
+		}()
+	}
+
+	pprofApp = app.NewPprofApp(ctx, ":8083")
+	go pprofApp.Start(ctx)
+
+	var myapp app.App
+	{{.startApp}}
+}
+
+func listenSignal(ctx context.Context, myapp app.App) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c)
+	for {
+		s := <-c
+		switch s {
+		case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGSEGV:
+			log.Println(ctx, "signal:", s)
+			err := myapp.Stop(ctx)
+			if err != nil {
+				log.Printf("%s Stop error: %+v\n", myapp.Name(), err)
+			}
+			if defaultApp != nil {
+				err = defaultApp.Stop(ctx)
+				if err != nil {
+					log.Printf("%s Stop error: %+v\n", myapp.Name(), err)
+				}
+			}
+			if pprofApp != nil {
+				err = pprofApp.Stop(ctx)
+				if err != nil {
+					log.Printf("%s Stop error: %+v\n", myapp.Name(), err)
+				}
+			}
+			log.Printf("%s Stop\n", myapp.Name())
+			return
+		case syscall.SIGUSR1:
+		case syscall.SIGWINCH, syscall.SIGURG:
+			//ignore
+		default:
+			log.Println("signal default:", s)
+		}
+	}
+
+}
+
+
+
+type CommonLogger struct {
+}
+
+func (l CommonLogger) Info(ctx context.Context, info string, args ...interface{}) {
+	logger.Info(ctx, info, args)
+}
+
+func (l CommonLogger) Warn(ctx context.Context, info string, args ...interface{}) {
+	logger.Warn(ctx, info, args)
+}
+
+func (l CommonLogger) Error(ctx context.Context, info string, args ...interface{}) {
+	logger.Error(ctx, info, args)
+}
+
+func (l CommonLogger) WithFields(ctx context.Context, fields map[string]interface{}) *logrus.Entry {
+	return logger.WithFields(ctx, fields)
+}

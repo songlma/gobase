@@ -1,0 +1,70 @@
+package constant
+
+import "github.com/songlma/gobase/errorz"
+
+var (
+	UndefinedStatus           = NewStatus(1000, "未定义的错误")
+	RabbitConnError           = NewStatus(1001, "内部服务不可用")
+	RabbitConfigNotFoundError = NewStatus(1002, "内部服务不可用")
+	RedisConfigError          = NewStatus(1003, "内部服务不可用")
+	RedisPingError            = NewStatus(1004, "内部服务不可用")
+	ArtemisConfigError        = NewStatus(1005, "内部服务不可用")
+	MysqlSelectError          = NewStatus(1006, "数据保存失败")
+	MysqlInsertError          = NewStatus(1006, "数据保存失败")
+	MysqlUpdateError          = NewStatus(1007, "数据更新失败")
+	JsonDecodeError           = NewStatus(1008, "json解析失败")
+	ParamsError               = NewStatus(1009, "入参错误")
+)
+var (
+
+)
+
+var allStatus = make(map[int]Status)
+
+type Status struct {
+	code  int
+	alert string
+}
+
+func NewStatus(code int, alert string) Status {
+	status := Status{
+		code:  code,
+		alert: alert,
+	}
+	allStatus[code] = status
+	return status
+}
+
+func (s *Status) Code() int {
+	return s.code
+}
+
+func (s *Status) Alert() string {
+	return s.alert
+}
+
+func (s *Status) Error(msg string) errorz.Error {
+	return errorz.New(s.code, msg)
+}
+
+func (s *Status) ErrorWrap(msg string, cause error) errorz.Error {
+	return errorz.Wrap(s.code, msg, cause)
+}
+
+func ErrorStatus(error errorz.Error) Status {
+	s, ok := allStatus[error.Code()]
+	if ok {
+		return s
+	} else {
+		return UndefinedStatus
+	}
+}
+
+func CodeStatus(code int) Status {
+	s, ok := allStatus[code]
+	if ok {
+		return s
+	} else {
+		return UndefinedStatus
+	}
+}

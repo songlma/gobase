@@ -1,0 +1,20 @@
+package config
+
+import (
+	"bytes"
+	_ "embed"
+	"io"
+)
+
+//go:embed config/config.yaml
+var config []byte
+
+//go:embed secret/config.yaml
+var secret []byte
+
+func ConfigReader() io.Reader {
+	return bytes.NewBuffer(config)
+}
+func SecretReader() io.Reader {
+	return bytes.NewBuffer(secret)
+}
