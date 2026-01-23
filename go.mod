@@ -6,13 +6,11 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/go-sql-driver/mysql v1.9.3
-	github.com/go-stomp/stomp v2.1.4+incompatible
 	github.com/gomodule/redigo v1.9.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lempiy/Sqlite3CreateTableParser v0.0.0-20180614071528-510bc2964fb3
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.33
-	github.com/opentracing-contrib/go-grpc v0.1.2
 	github.com/opentracing/opentracing-go v1.2.0
 	github.com/openzipkin-contrib/zipkin-go-opentracing v0.5.0
 	github.com/openzipkin/zipkin-go v0.4.3
