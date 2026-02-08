@@ -86,6 +86,31 @@ func TestStack(t *testing.T) {
 	t.Log(fmt.Sprintf("%+v", err))
 }
 
+func TestAlert(t *testing.T) {
+	e := New(1000, "msg err", "alert msg")
+	t.Log(e)
+	t.Log(e.Error())
+	if e.Alert() != "alert msg" {
+		t.Error("alert msg error")
+	}
+
+	e2 := Wrap(1001, "wrap err", e, "wrap alert")
+	t.Log(e2)
+	if e2.Alert() != "wrap alert" {
+		t.Error("wrap alert error")
+	}
+
+	e3 := NewAlertError(1002, "new alert error", "alert msg 3")
+	if e3.Alert() != "alert msg 3" {
+		t.Error("new alert error msg error")
+	}
+
+	e4 := WrapWithAlert(e, "wrap with alert")
+	if e4.Alert() != "wrap with alert" {
+		t.Error("wrap with alert error")
+	}
+}
+
 func Call() error {
 	return Wrap(1200, "messageErr", SelectSql())
 }
