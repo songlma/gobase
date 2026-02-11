@@ -10,34 +10,36 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	e := New(1000, "msg err")
-	t.Log(e)                    //{code=1000,msg=msg err}
-	t.Log(e.Error())            //code:1000,msg err-wrapErr:[]-errorz_test.go:12
-	t.Log(fmt.Sprintf("%v", e)) //{code=1000,msg=msg err}
-	t.Log(fmt.Sprintf("%+v", e))
+	e := New(1000, "msg err", WithAlert("错误提示"))
+	t.Log(e)                     // [code=1000,msg=msg err,alert=错误提示,ln=errorz_test.go:13]
+	t.Log(e.Error())             // [code=1000,msg=msg err,alert=错误提示,ln=errorz_test.go:13]
+	t.Log(fmt.Sprintf("%v", e))  //[code=1000,msg=msg err,alert=错误提示,ln=errorz_test.go:13]
+	t.Log(fmt.Sprintf("%+v", e)) //[code=1000,msg=msg err,alert=错误提示,ln=errorz_test.go:13]( gobase/errorz.TestNew:errorz/errorz_test.go:13  ->  testing.tRunner:testing/testing.go:1937  ->  runtime.goexit:runtime/asm_arm64.s:1269 )
 }
 
 func TestWrap(t *testing.T) {
-	e := Wrap(1000, "MsgErr", sql.ErrNoRows)
-	e = Wrap(1001, "BatchErr", e)
-	t.Log(e)         //{code=1000,msg=MSG ERR,alert=,wrapErr=sql: no rows in result set}
-	t.Log(e.Error()) //MSG ERR-errorz.go:76
+	e := Wrap(sql.ErrNoRows, 1000, "MsgErr")
+	e = Wrap(e, 1001, "BatchErr")
+	e = Wrap(e, 1002, "UpdateErr")
+	t.Log(e)
+	t.Log(e.Error())
 	t.Log(fmt.Sprintf("%v", e))
 	t.Log(fmt.Sprintf("%+v", e))
+
 }
 
 func TestWrap2(t *testing.T) {
-	e := Wrap(1000, "sql err", sql.ErrNoRows)
+	e := Wrap(sql.ErrNoRows, 1000, "sql err")
 	t.Log(e) //{code=1000,msg=sql err,alert=,wrapErr=sql: no rows in result set}
 	t.Log(e.Error())
-	e = Wrap(1200, "mse err", e)
+	e = Wrap(e, 1200, "mse err")
 	t.Log(e) //{code=1200,msg=mse err,alert=,wrapErr={code=1000,msg=sql err,alert=,wrapErr=sql: no rows in result set}}
 	t.Log(e.Error())
 }
 
 func Test_Unwrap(t *testing.T) {
 	goErr := sql.ErrNoRows
-	e := Wrap(1000, "sql err", goErr)
+	e := Wrap(goErr, 1000, "sql err")
 	t.Log(e)
 	t.Log(errors.Unwrap(e))
 	if reflect.TypeOf(errors.Unwrap(e)).String() != "*errors.errorString" {
@@ -56,7 +58,7 @@ func TestErrorStatus(t *testing.T) {
 
 func TestIs(t *testing.T) {
 	goErr := sql.ErrNoRows
-	e := Wrap(1000, "sql err", goErr)
+	e := Wrap(goErr, 1000, "sql err")
 
 	if !errors.Is(errors.Unwrap(e), goErr) {
 		t.Error(errors.Unwrap(e))
@@ -86,33 +88,8 @@ func TestStack(t *testing.T) {
 	t.Log(fmt.Sprintf("%+v", err))
 }
 
-func TestAlert(t *testing.T) {
-	e := New(1000, "msg err", "alert msg")
-	t.Log(e)
-	t.Log(e.Error())
-	if e.Alert() != "alert msg" {
-		t.Error("alert msg error")
-	}
-
-	e2 := Wrap(1001, "wrap err", e, "wrap alert")
-	t.Log(e2)
-	if e2.Alert() != "wrap alert" {
-		t.Error("wrap alert error")
-	}
-
-	e3 := NewAlertError(1002, "new alert error", "alert msg 3")
-	if e3.Alert() != "alert msg 3" {
-		t.Error("new alert error msg error")
-	}
-
-	e4 := WrapWithAlert(e, "wrap with alert")
-	if e4.Alert() != "wrap with alert" {
-		t.Error("wrap with alert error")
-	}
-}
-
 func Call() error {
-	return Wrap(1200, "messageErr", SelectSql())
+	return Wrap(SelectSql(), 1200, "messageErr")
 }
 
 func SelectSql() error {
