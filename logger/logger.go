@@ -34,7 +34,10 @@ func init() {
 	logrus.SetOutput(io.MultiWriter(os.Stdout))
 	errorLogger.SetOutput(os.Stderr)
 	errorLogger.SetLevel(logrus.ErrorLevel)
-	errorLogger.SetFormatter(&logrus.TextFormatter{})
+	errorLogger.SetFormatter(&logrus.JSONFormatter{
+		TimestampFormat: "2006-01-02 15:04:05.000", //时间格式化
+	})
+
 }
 
 func Debug(ctx context.Context, args ...interface{}) {
@@ -64,19 +67,19 @@ func Error(ctx context.Context, args ...interface{}) {
 			break
 		}
 	}
-	commonEntry(ctx, errorLogger.WithContext(ctx), nil).Error(errArgs...)
+	//commonEntry(ctx, errorLogger.WithContext(ctx), nil).Error(errArgs...)
 	commonEntry(ctx, entry, fields).Error(args...)
 }
 
 func Errorf(ctx context.Context, format string, args ...interface{}) {
 	entry := logrus.WithContext(ctx)
 	fields := map[string]interface{}{}
-	errorLogger.Errorf(format, args...)
+	//errorLogger.Errorf(format, args...)
 	for _, arg := range args {
 		var stack string
 		if err, ok := arg.(errorz.Error); ok {
 			stack = fmt.Sprintf("%+v\n", err)
-			errorLogger.Errorf("%+v\n", err)
+			//errorLogger.Errorf("%+v\n", err)
 		}
 		if stack != "" {
 			fields["stack"] = stack
